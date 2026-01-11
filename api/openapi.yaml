@@ -1,0 +1,547 @@
+openapi: 3.0.3
+info:
+  title: Photannie API
+  version: 1.3.1
+  description: >
+    API веб-сервиса записи в фотостудию Photannie.
+    Public: получение свободных слотов на дату и создание записи.
+    Admin: просмотр записей на конкретный день и отмена записи.
+    Авторизация админа: примитивный логин по паролю (из .env) с серверной сессией.
+    Сессия хранится в cookie без Expires/Max-Age (session cookie): при закрытии браузера требуется вход заново.
+
+servers:
+  - url: https://{host}
+    variables:
+      host:
+        default: api.photannie.local
+
+tags:
+  - name: Public
+  - name: AdminSession
+  - name: Admin
+  - name: System
+
+security: []
+
+paths:
+  /api/health:
+    get:
+      tags: [System]
+      summary: Health-check
+      operationId: healthCheck
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: ["ok"]
+                  time:
+                    type: string
+                    format: date-time
+                required:
+                  - status
+                  - time
+
+  /api/public/slots:
+    get:
+      tags: [Public]
+      summary: Свободные слоты на дату
+      description: >
+        Возвращает список свободных стартовых слотов по сетке slot_minutes (в MVP = 30).
+        Сервер может НЕ возвращать прошедшие слоты для сегодняшней даты (относительно времени сервера в TZ студии).
+        Длительность в этом эндпоинте не учитывается — окончательная проверка интервала выполняется при создании записи.
+      operationId: getFreeSlotsByDate
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: Дата YYYY-MM-DD
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Свободные слоты
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FreeSlotsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/public/bookings:
+    post:
+      tags: [Public]
+      summary: Создать запись
+      description: >
+        Создает одну запись-интервал (start_time + duration_minutes).
+        duration_minutes кратно slot_minutes.
+        Если интервал пересекается с другой активной записью — 409.
+      operationId: createBooking
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingCreateRequest"
+      responses:
+        "201":
+          description: Запись создана
+          headers:
+            Location:
+              description: URL созданной записи (для админки)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingCreateResponse"
+        "409":
+          $ref: "#/components/responses/TimeConflict"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/admin/session/login:
+    post:
+      tags: [AdminSession]
+      summary: Вход администратора (установка session cookie)
+      description: >
+        Проверяет пароль администратора (из .env) и создает серверную сессию.
+        В ответе устанавливается session cookie без Expires/Max-Age (session-only).
+      operationId: adminSessionLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSessionLoginRequest"
+      responses:
+        "204":
+          description: Успешно. Сессия установлена (Set-Cookie).
+          headers:
+            Set-Cookie:
+              description: Session cookie (HttpOnly; SameSite=Strict; Secure в prod)
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/admin/bookings:
+    get:
+      tags: [Admin]
+      summary: Записи на конкретный день
+      description: >
+        Возвращает список записей за указанный день (date обязателен).
+        По умолчанию status=active. Можно запросить cancelled или all.
+        Требуется активная админ-сессия (cookie).
+      operationId: adminListBookingsByDate
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: Дата YYYY-MM-DD (часовой пояс студии)
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/BookingStatusFilter"
+      responses:
+        "200":
+          description: Список записей за день
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminBookingsByDateResponse"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/admin/bookings/{booking_id}:
+    get:
+      tags: [Admin]
+      summary: Детали записи
+      operationId: adminGetBooking
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: booking_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Детали записи
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingDetail"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/admin/bookings/{booking_id}/cancel:
+    post:
+      tags: [Admin]
+      summary: Отменить запись
+      description: >
+        Идемпотентно: если уже отменена — возвращает текущее состояние.
+        После отмены интервал освобождается.
+        Требуется активная админ-сессия (cookie).
+      operationId: adminCancelBooking
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: booking_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelBookingRequest"
+      responses:
+        "200":
+          description: Запись отменена (или уже была отменена)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingDetail"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: photannie_session
+      description: >
+        Серверная сессия администратора.
+        Cookie должна быть session-only (без Expires/Max-Age), HttpOnly, SameSite=Strict.
+        Secure=true в продакшене (HTTPS).
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Ключ идемпотентности для безопасных повторов (ретраи/двойной клик).
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    ValidationError:
+      description: Ошибка валидации
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationErrorResponse"
+
+    AdminUnauthorized:
+      description: Не авторизован (нет или недействительна сессия) / неверный пароль
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    TimeConflict:
+      description: Выбранный интервал занят (пересечение)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    InternalError:
+      description: Внутренняя ошибка
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    FreeSlotsResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        free_slots:
+          type: array
+          description: Свободные стартовые слоты по сетке (HH:MM)
+          items:
+            type: string
+            pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+      required:
+        - date
+        - free_slots
+
+    BookingStatus:
+      type: string
+      enum: [active, cancelled]
+
+    BookingStatusFilter:
+      type: string
+      enum: [active, cancelled, all]
+      default: active
+
+    BookingCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        date:
+          type: string
+          format: date
+          description: Дата записи (TZ студии)
+        start_time:
+          type: string
+          pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+          description: Время начала (кратно slot_minutes)
+        duration_minutes:
+          type: integer
+          minimum: 30
+          maximum: 540
+          multipleOf: 30
+          default: 30
+          description: Длительность (кратно slot_minutes). Сервер проверит, что весь интервал свободен.
+        name:
+          type: string
+          minLength: 2
+          maxLength: 80
+        phone:
+          type: string
+          pattern: "^\\+7\\d{10}$"
+        comment:
+          type: string
+          nullable: true
+          maxLength: 1000
+      required:
+        - date
+        - start_time
+        - duration_minutes
+        - name
+        - phone
+
+    BookingCreateResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+        end_time:
+          type: string
+          pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+          description: Рассчитанное окончание (не включительно)
+        duration_minutes:
+          type: integer
+          minimum: 30
+          maximum: 540
+          multipleOf: 30
+        status:
+          $ref: "#/components/schemas/BookingStatus"
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - date
+        - start_time
+        - end_time
+        - duration_minutes
+        - status
+        - created_at
+
+    BookingSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+        end_time:
+          type: string
+          pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+        duration_minutes:
+          type: integer
+          minimum: 30
+          maximum: 540
+          multipleOf: 30
+        client_name:
+          type: string
+        client_phone:
+          type: string
+          pattern: "^\\+7\\d{10}$"
+        comment:
+          type: string
+          nullable: true
+        status:
+          $ref: "#/components/schemas/BookingStatus"
+        created_at:
+          type: string
+          format: date-time
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - date
+        - start_time
+        - end_time
+        - duration_minutes
+        - client_name
+        - client_phone
+        - status
+        - created_at
+
+    BookingDetail:
+      allOf:
+        - $ref: "#/components/schemas/BookingSummary"
+        - type: object
+          properties:
+            cancel_reason:
+              type: string
+              nullable: true
+              maxLength: 300
+
+    AdminBookingsByDateResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookingSummary"
+      required:
+        - date
+        - items
+
+    AdminSessionLoginRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+        - password
+
+    CancelBookingRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          nullable: true
+          maxLength: 300
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
+      required:
+        - code
+        - message
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          enum: ["validation_error"]
+        message:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+      required:
+        - code
+        - message
+        - fields
+
+    FieldError:
+      type: object
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+      required:
+        - field
+        - message

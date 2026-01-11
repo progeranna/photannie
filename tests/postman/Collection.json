@@ -1,0 +1,925 @@
+{
+	"info": {
+		"_postman_id": "f349a971-1f19-4776-b094-aff356169cb4",
+		"name": "Photannie API Tests (Newman)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "40740605"
+	},
+	"item": [
+		{
+			"name": "00 - Smoke",
+			"item": [
+				{
+					"name": "GET /api/health",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (!pm.response || typeof pm.response.code !== 'number' || pm.response.code === 0) {",
+									"  throw new Error('Request did not reach the server. Check baseUrl and container ports.');",
+									"}",
+									"",
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"",
+									"const j = pm.response.json();",
+									"pm.test('status=ok', () => pm.expect(j.status).to.eql('ok'));",
+									"pm.test('time exists', () => pm.expect(j.time).to.be.a('string'));"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"packages": {},
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/health",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"health"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "10 - Public",
+			"item": [
+				{
+					"name": "GET /api/public/slots (auto testDate)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"function toISODate(d) {",
+									"  const yyyy = d.getFullYear();",
+									"  const mm = String(d.getMonth() + 1).padStart(2, '0');",
+									"  const dd = String(d.getDate()).padStart(2, '0');",
+									"  return `${yyyy}-${mm}-${dd}`;",
+									"}",
+									"",
+									"let d = new Date();",
+									"d.setDate(d.getDate() + 1);",
+									"",
+									"for (let i = 0; i < 14; i++) {",
+									"  const day = d.getDay();",
+									"  if (day >= 1 && day <= 5) break;",
+									"  d.setDate(d.getDate() + 1);",
+									"}",
+									"",
+									"pm.environment.set('testDate', toISODate(d));",
+									"",
+									"",
+									"pm.environment.unset('freeSlot');",
+									"pm.environment.unset('bookingId');"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"",
+									"const j = pm.response.json();",
+									"pm.test('date matches', () => pm.expect(j.date).to.eql(pm.environment.get('testDate')));",
+									"pm.test('free_slots is array', () => pm.expect(j.free_slots).to.be.an('array'));",
+									"",
+									"pm.test('at least one free slot exists', () => {",
+									"  pm.expect(j.free_slots.length, 'No free slots returned').to.be.greaterThan(0);",
+									"});",
+									"",
+									"pm.environment.set('freeSlot', j.free_slots[0]);"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/public/slots?date={{testDate}}",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"public",
+								"slots"
+							],
+							"query": [
+								{
+									"key": "date",
+									"value": "{{testDate}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "POST /api/public/bookings (create 201)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const d = pm.environment.get('testDate');",
+									"const s = pm.environment.get('freeSlot');",
+									"if (!d || !s) {",
+									"  throw new Error('Missing testDate/freeSlot.');",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('201 Created', () => pm.response.to.have.status(201));",
+									"",
+									"const j = pm.response.json();",
+									"pm.environment.set('bookingId', j.id);",
+									"",
+									"pm.test('id is uuid', () => {",
+									"  pm.expect(j.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);",
+									"});",
+									"pm.test('status=active', () => pm.expect(j.status).to.eql('active'));",
+									"pm.test('date matches', () => pm.expect(j.date).to.eql(pm.environment.get('testDate')));",
+									"pm.test('start_time matches', () => pm.expect(j.start_time).to.eql(pm.environment.get('freeSlot')));",
+									"pm.test('duration=30', () => pm.expect(j.duration_minutes).to.eql(30));",
+									"pm.test('end_time exists', () => pm.expect(j.end_time).to.match(/^(?:[01]\\d|2[0-3]):[0-5]\\d$/));",
+									"pm.test('created_at exists', () => pm.expect(j.created_at).to.be.a('string'));"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"date\": \"{{testDate}}\",\n  \"start_time\": \"{{freeSlot}}\",\n  \"duration_minutes\": 30,\n  \"name\": \"{{testName}}\",\n  \"phone\": \"{{testPhone}}\",\n  \"comment\": \"created by newman\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/public/bookings",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"public",
+								"bookings"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "POST /api/public/bookings (conflict 409)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const d = pm.environment.get('testDate');",
+									"const s = pm.environment.get('freeSlot');",
+									"if (!d || !s) {",
+									"  throw new Error('Missing testDate/freeSlot.');",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+									"const j = pm.response.json();",
+									"pm.test('Error has code/message', () => {",
+									"  pm.expect(j).to.have.property('code');",
+									"  pm.expect(j).to.have.property('message');",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"date\": \"{{testDate}}\",\n  \"start_time\": \"{{freeSlot}}\",\n  \"duration_minutes\": 30,\n  \"name\": \"{{testName}}\",\n  \"phone\": \"{{testPhone}}\",\n  \"comment\": \"second attempt should conflict\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/public/bookings",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"public",
+								"bookings"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "POST /api/public/bookings (validation 422: phone)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const d = pm.environment.get('testDate');",
+									"const s = pm.environment.get('freeSlot');",
+									"if (!d || !s) {",
+									"  throw new Error('Missing testDate/freeSlot.');",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('422 ValidationError', () => pm.response.to.have.status(422));",
+									"",
+									"const j = pm.response.json();",
+									"pm.test('validation_error envelope', () => {",
+									"  pm.expect(j.code).to.eql('validation_error');",
+									"  pm.expect(j.fields).to.be.an('array');",
+									"});",
+									"",
+									"pm.test('phone field error exists', () => {",
+									"  const phoneErr = j.fields.find(x => x.field === 'phone');",
+									"  pm.expect(phoneErr, 'Expected validation error for phone').to.exist;",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"date\": \"{{testDate}}\",\n  \"start_time\": \"{{freeSlot}}\",\n  \"duration_minutes\": 30,\n  \"name\": \"{{testName}}\",\n  \"phone\": \"89990001122\",\n  \"comment\": \"bad phone\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/public/bookings",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"public",
+								"bookings"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "20 - Admin",
+			"item": [
+				{
+					"name": "POST /api/admin/session/login (204)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const p = pm.environment.get('adminPassword');",
+									"if (!p || String(p).trim() === '') {",
+									"  throw new Error('Environment variable \"adminPassword\" is not set.');",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('204 No Content', () => pm.response.to.have.status(204));",
+									"",
+									"pm.test('Set-Cookie contains photannie_session', () => {",
+									"  const sc = pm.response.headers.get('Set-Cookie');",
+									"  pm.expect(sc, 'Set-Cookie header missing').to.be.a('string').and.to.have.length.greaterThan(0);",
+									"  pm.expect(sc).to.include('photannie_session');",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"password\": \"{{adminPassword}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/admin/session/login",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"session",
+								"login"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GET /api/admin/bookings?date={{testDate}} (200, contains bookingId)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const d = pm.environment.get('testDate');",
+									"const id = pm.environment.get('bookingId');",
+									"if (!d) throw new Error('Missing testDate.');",
+									"if (!id) throw new Error('Missing bookingId.');"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"const j = pm.response.json();",
+									"pm.test('date matches', () => pm.expect(j.date).to.eql(pm.environment.get('testDate')));",
+									"pm.test('items is array', () => pm.expect(j.items).to.be.an('array'));",
+									"",
+									"const id = pm.environment.get('bookingId');",
+									"pm.test('bookingId present in list', () => {",
+									"  const found = j.items.some(x => x.id === id);",
+									"  pm.expect(found, `Booking ${id} not found in day list`).to.eql(true);",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/admin/bookings?date={{testDate}}",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"bookings"
+							],
+							"query": [
+								{
+									"key": "date",
+									"value": "{{testDate}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GET /api/admin/bookings/{{bookingId}} (200)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const id = pm.environment.get('bookingId');",
+									"if (!id) throw new Error('Missing bookingId.');"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"const j = pm.response.json();",
+									"pm.test('id matches', () => pm.expect(j.id).to.eql(pm.environment.get('bookingId')));",
+									"pm.test('status is valid', () => pm.expect(j.status).to.be.oneOf(['active','cancelled']));",
+									"pm.test('client_name present', () => pm.expect(j.client_name).to.be.a('string').and.to.have.length.greaterThan(0));",
+									"pm.test('client_phone format', () => pm.expect(j.client_phone).to.match(/^\\+7\\d{10}$/));",
+									"pm.test('start/end format', () => {",
+									"  pm.expect(j.start_time).to.match(/^(?:[01]\\d|2[0-3]):[0-5]\\d$/);",
+									"  pm.expect(j.end_time).to.match(/^(?:[01]\\d|2[0-3]):[0-5]\\d$/);",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/admin/bookings/{{bookingId}}",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"bookings",
+								"{{bookingId}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "POST /api/admin/bookings/{{bookingId}}/cancel (200 -> cancelled)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const id = pm.environment.get('bookingId');",
+									"if (!id) throw new Error('Missing bookingId.');"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"const j = pm.response.json();",
+									"pm.test('status=cancelled', () => pm.expect(j.status).to.eql('cancelled'));",
+									"pm.test('cancelled_at set', () => pm.expect(j.cancelled_at).to.be.a('string'));",
+									"pm.test('cancel_reason echoed (if supported)', () => {",
+									"  pm.expect(j).to.have.property('cancel_reason');",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"cancelled by newman\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/admin/bookings/{{bookingId}}/cancel",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"bookings",
+								"{{bookingId}}",
+								"cancel"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GET /api/admin/bookings/{random_uuid} (404)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"function s4() { return Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1); }",
+									"const uuid = `${s4()}${s4()}-${s4()}-4${s4().slice(1)}-${(['8','9','a','b'])[Math.floor(Math.random()*4)]}${s4().slice(1)}-${s4()}${s4()}${s4()}`;",
+									"pm.variables.set('randomUuid', uuid);"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+									"const j = pm.response.json();",
+									"pm.test('Error has code/message', () => {",
+									"  pm.expect(j).to.have.property('code');",
+									"  pm.expect(j).to.have.property('message');",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/admin/bookings/{{randomUuid}}",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"bookings",
+								"{{randomUuid}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "90 - Negative Auth",
+			"item": [
+				{
+					"name": "GET /api/admin/bookings (401 without session)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"function toISODate(d) {",
+									"  const yyyy = d.getFullYear();",
+									"  const mm = String(d.getMonth() + 1).padStart(2, '0');",
+									"  const dd = String(d.getDate()).padStart(2, '0');",
+									"  return `${yyyy}-${mm}-${dd}`;",
+									"}",
+									"let d = new Date();",
+									"d.setDate(d.getDate() + 1);",
+									"for (let i = 0; i < 14; i++) {",
+									"  const day = d.getDay();",
+									"  if (day >= 1 && day <= 5) break;",
+									"  d.setDate(d.getDate() + 1);",
+									"}",
+									"pm.variables.set('negDate', toISODate(d));"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+									"const j = pm.response.json();",
+									"pm.test('error has code/message', () => {",
+									"  pm.expect(j).to.have.property('code');",
+									"  pm.expect(j).to.have.property('message');",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Cookie",
+								"value": "photannie_session="
+							}
+						],
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/admin/bookings?date={{negDate}}",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"bookings"
+							],
+							"query": [
+								{
+									"key": "date",
+									"value": "{{negDate}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "POST /api/admin/session/login (401 wrong password)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+									"const j = pm.response.json();",
+									"pm.test('error has code/message', () => {",
+									"  pm.expect(j).to.have.property('code');",
+									"  pm.expect(j).to.have.property('message');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"password\": \"wrong_password\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/admin/session/login",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"session",
+								"login"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "30 - Integration",
+			"item": [
+				{
+					"name": "GET /api/public/slots (slot is free after cancel)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const d = pm.environment.get('testDate');",
+									"const s = pm.environment.get('freeSlot');",
+									"if (!d) throw new Error('Missing testDate.');",
+									"if (!s) throw new Error('Missing freeSlot.');"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"const j = pm.response.json();",
+									"const slot = pm.environment.get('freeSlot');",
+									"pm.test('Cancelled slot is free again', () => {",
+									"  pm.expect(j.free_slots).to.be.an('array');",
+									"  pm.expect(j.free_slots.includes(slot), `Expected slot ${slot} to be free after cancel`).to.eql(true);",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrlNormalized}}/api/public/slots?date={{testDate}}",
+							"host": [
+								"{{baseUrlNormalized}}"
+							],
+							"path": [
+								"api",
+								"public",
+								"slots"
+							],
+							"query": [
+								{
+									"key": "date",
+									"value": "{{testDate}}"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Normalize baseUrl once per request so Newman always gets a valid URL",
+					"const base = pm.environment.get('baseUrl') || pm.collectionVariables.get('baseUrl');",
+					"if (!base || String(base).trim() === '') {",
+					"  throw new Error('Environment variable \"baseUrl\" is not set. Example: http://localhost:8080');",
+					"}",
+					"pm.variables.set('baseUrlNormalized', String(base).replace(/\\/+$/, ''));"
+				]
+			}
+		}
+	]
+}
