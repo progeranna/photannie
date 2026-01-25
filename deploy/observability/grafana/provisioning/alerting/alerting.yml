@@ -1,0 +1,124 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: photannie-webhook
+    receivers:
+      - uid: photannie_webhook
+        type: webhook
+        settings:
+          url: ${GRAFANA_WEBHOOK_URL}
+          httpMethod: POST
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: photannie-webhook
+    group_by: ['alertname', 'service']
+    group_wait: 10s
+    group_interval: 1m
+    repeat_interval: 30m
+    routes:
+      - receiver: photannie-webhook
+        object_matchers:
+          - ['service', '=', 'photannie']
+
+groups:
+  - orgId: 1
+    name: photannie
+    folder: photannie
+    interval: 30s
+    rules:
+      - uid: photannie_service_down
+        title: Photannie service is down
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: up{job="photannie"}
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+
+          - refId: B
+            datasourceUid: '__expr__'
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: '__expr__'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: classic_conditions
+
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "Photannie недоступен (Prometheus up==0)"
+        labels:
+          service: photannie
+          severity: critical
+
+      - uid: photannie_error_logs
+        title: Photannie has ERROR logs
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: sum(count_over_time({compose_service="app"} | json | level="ERROR" [5m]))
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+
+          - refId: B
+            datasourceUid: '__expr__'
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: '__expr__'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: classic_conditions
+
+        noDataState: OK
+        execErrState: Alerting
+        for: 30s
+        annotations:
+          summary: "В логах Photannie есть ERROR за последние 5 минут"
+        labels:
+          service: photannie
+          severity: warning

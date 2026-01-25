@@ -1,0 +1,80 @@
+/* Tailwind v4 */
+@import "tailwindcss";
+
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/playfair-display";
+
+:root {
+  --bg: #fbfaf7;
+  --ink: #121212;
+
+  --muted: #6f6a63;
+  --muted2: #8b847b;
+
+  --hair: #e9e3da;
+  --field-border: #e2dbd2;
+
+  --chip-busy-bg: #f3efe9;
+  --chip-busy-border: #e8e1d8;
+
+  --soft: #f6f2ec;
+  --hero-top: #efe9e2;
+  --hero-side: #f7f4ef;
+
+  --scroll-track: #f1ede7;
+  --scroll-thumb: #cfc7bc;
+
+  --gold: #b08d57;
+
+  --r-card: 26px;
+  --r-hero: 22px;
+  --r-16: 16px;
+  --r-14: 14px;
+  --r-pill: 999px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+
+  font-family: "InterVariable", Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial,
+  sans-serif;
+}
+
+.font-pricing {
+  font-family: "Playfair DisplayVariable", "Playfair Display", Georgia, "Times New Roman", serif;
+  font-style: italic;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(18, 18, 18, 0.25);
+  outline-offset: 2px;
+}
+
+.pricing-scroll {
+  scrollbar-width: thin;
+}
+
+.pricing-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.pricing-scroll::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+}
+
+.pricing-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+

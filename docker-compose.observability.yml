@@ -1,0 +1,70 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./deploy/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - photannie_prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.8
+    env_file:
+      - .env
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_UNIFIED_ALERTING_ENABLED: true
+      GF_ALERTING_ENABLED: false
+      GRAFANA_WEBHOOK_URL: ${GRAFANA_WEBHOOK_URL:-http://webhook-receiver:80/}
+    volumes:
+      - photannie_grafana_data:/var/lib/grafana
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.8
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./deploy/observability/loki/loki.yml:/etc/loki/config.yml:ro
+      - photannie_loki_data:/loki
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./deploy/observability/promtail/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - photannie_promtail_positions:/tmp
+    depends_on:
+      - loki
+    ports:
+      - "9080:9080"
+    restart: unless-stopped
+
+  webhook-receiver:
+    image: ealen/echo-server:0.9.2
+    restart: unless-stopped
+    ports:
+      - "${OBS_WEBHOOK_PORT:-8085}:80"
+
+volumes:
+  photannie_prometheus_data:
+  photannie_grafana_data:
+  photannie_loki_data:
+  photannie_promtail_positions:
